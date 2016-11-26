@@ -57,8 +57,11 @@ def write_file(filename, data):
         f.write(data)
 
 
-if __name__ == "__main__":
+def main():
     exit_code = get_usage()
     data = '%s:%d' % (datetime.utcnow().strftime('%s'), exit_code)
     filename = 'vendor_usage'
     write_file(filename, data)
+
+if __name__ == "__main__":
+    main()

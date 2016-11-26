@@ -21,6 +21,10 @@ def get_result(data):
         print int(result[1])
 
 
-if __name__ == "__main__":
+def main():
     filename = 'vendor_usage'
     get_result(read_file(filename))
+
+
+if __name__ == "__main__":
+    main()

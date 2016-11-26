@@ -35,6 +35,10 @@ def ping():
   print 'latency=%d' % (end - start) 
 
 
-if __name__ == '__main__':
+def main():
     timer = threading.Timer(10, website_ping)
     timer.start()
+
+
+if __name__ == '__main__':
+    main()
