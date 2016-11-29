@@ -47,7 +47,7 @@ def start(partitionId, pool):
     startWindow = getTimestampByMinute(lastProcessTs - timedelta(minutes=REPORT_OFFSET))
 
     kafkaConsumer = getKafkaConsumer(partitionId, retry=True)
-    redisClient = redis.Redis(connection_pool=pool)
+    redisClient = redis.StrictRedis(connection_pool=pool)
 
     while True:
         messages, kafkaConsumer = fetchKafkaMessages(partitionId, kafkaConsumer)
@@ -67,6 +67,7 @@ def start(partitionId, pool):
             reportSession(batch, redisClient)
             batch = []
             lastProcessTs = datetime.utcnow()
+            #logger.info("batchSize:%d, elapsed:%d" % (batchSize, elapsed))
 
 
 def getKafkaConsumer(partitionId, retry=False):
@@ -117,6 +118,9 @@ def filterEventItem(item, startWindow):
         return None
 
     if 'sid' not in item or not item['sid']:
+        return None
+    
+    if 'os' not in item or item['os'] == 'Linux':
         return None
 
     return item
