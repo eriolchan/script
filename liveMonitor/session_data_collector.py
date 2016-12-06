@@ -82,7 +82,7 @@ def getKafkaConsumer(partitionId, retry=False):
 
             consumer.set_topic_partitions((KAFKA_TOPIC, partitionId))
 
-            logger.info('connect to Kafka:[%s] topic:[%s] partition:[%s] success' % (KAFKA_URL, KAFKA_TOPIC, partitionId))
+            logger.info("connect to Kafka:[%s] topic:[%s] partition:[%s] success" % (KAFKA_URL, KAFKA_TOPIC, partitionId))
         except Exception as e:
             if retry:
                 logger.warn("failed to connect to Kafka:[%s] topic:[%s] partition:[%s], retry in 1s" % (KAFKA_URL, KAFKA_TOPIC, partitionId))
@@ -100,7 +100,7 @@ def fetchKafkaMessages(partitionId, consumer):
             messages = consumer.fetch_messages()
         except Exception as e:
             traceback.print_exc()
-            logger.warn('failed to fetch Kafka messages from:[%s], error:%s' % (KAFKA_URL, e))
+            logger.warn("failed to fetch Kafka messages from:[%s], error:%s" % (KAFKA_URL, e))
             consumer = getKafkaConsumer(partitionId, True)
             continue
 
@@ -120,7 +120,7 @@ def filterEventItem(item, startWindow):
     if 'sid' not in item or not item['sid']:
         return None
     
-    if 'os' not in item or item['os'] == 'Linux':
+    if 'os' not in item or item['os'].startswith('Linux'):
         return None
 
     return item
@@ -130,15 +130,15 @@ def getEventItemFromKafkaItem(kafkaItem):
     try:
         return json.loads(kafkaItem.value)
     except Exception, e:
-        logger.warn('invalid event item:%s error:%s' % (kafkaItem.value, e))
+        logger.warn("invalid event item:%s error:%s" % (kafkaItem.value, e))
         return None
 
 
 def initConfig():
-    configFile = os.path.dirname(os.path.realpath(__file__))+'/product.ini'
+    configFile = os.path.dirname(os.path.realpath(__file__)) + '/product.ini'
 
     if not os.path.isfile(configFile):
-        logger.error('config not exist:%s' %(configFile))
+        logger.error("config not exist:%s" %(configFile))
         sys.exit(1)
 
     config = ConfigParser.RawConfigParser()

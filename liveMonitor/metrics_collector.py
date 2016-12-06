@@ -8,10 +8,10 @@ import traceback
 from datetime import datetime, timedelta
 
 import cjson
-import potsdb
 import redis
-from kafka import KafkaConsumer
 
+import potsdb
+from kafka import KafkaConsumer
 
 KAFKA_URL = None
 KAFKA_TOPIC = None
@@ -29,6 +29,7 @@ REPORT_BATCH = None
 VALID_VIDS = None
 OPENTSDB_URL = None
 COUNTER_KEYS = None
+COUNTER_NAMES = None
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -82,7 +83,7 @@ def getKafkaConsumer(partitionId, retry=False):
 
             consumer.set_topic_partitions((KAFKA_TOPIC, partitionId))
 
-            logger.info('connect to Kafka:[%s] topic:[%s] partition:[%s] success' % (KAFKA_URL, KAFKA_TOPIC, partitionId))
+            logger.info("connect to Kafka:[%s] topic:[%s] partition:[%s] success" % (KAFKA_URL, KAFKA_TOPIC, partitionId))
         except Exception as e:
             if retry:
                 logger.warn("failed to connect to Kafka:[%s] topic:[%s] partition:[%s], retry in 1s" % (KAFKA_URL, KAFKA_TOPIC, partitionId))
@@ -100,7 +101,7 @@ def fetchKafkaMessages(partitionId, consumer):
             messages = consumer.fetch_messages()
         except Exception as e:
             traceback.print_exc()
-            logger.warn('failed to fetch Kafka messages from:[%s], error:%s' % (KAFKA_URL, e))
+            logger.warn("failed to fetch Kafka messages from:[%s], error:%s" % (KAFKA_URL, e))
             consumer = getKafkaConsumer(partitionId, True)
             continue
 
@@ -111,7 +112,7 @@ def getEventItemFromKafkaItem(kafkaItem):
     try:
         return cjson.decode(kafkaItem.value)
     except Exception as e:
-        logger.warn('invalid event item:%s error:%s' % (kafkaItem.value, e))
+        logger.warn("invalid event item:%s error:%s" % (kafkaItem.value, e))
         return None
 
 
@@ -132,10 +133,11 @@ def filterEventItem(item, startWindow):
 
 
 def processData(batch, vidMapping, redisClient):
-    sids, hosts, guests, records = getHostAndGuest(batch)
+    sids, hosts, guests, presents, records = getRoleSet(batch)
     sidToVid = getSidToVid(list(sids), vidMapping)
 
-    count = [0, 0]
+    count = [0, 0, 0]
+    metrics = {}
     p = redisClient.pipeline(transaction=False)
     for item in records:
         id = item[0]
@@ -143,32 +145,71 @@ def processData(batch, vidMapping, redisClient):
         sid = item[2]
         value = item[3]
 
-        if sid not in hosts and sid not in guests:
-            continue
-
         vid = sidToVid[sid]
         if vid and vid in VALID_VIDS:
             ts = lts - lts % REPORT_SAMPLE
             tsKey = '%d:%s' % (ts, vid)
             p.zadd('TS', ts, tsKey)
 
+            if tsKey not in metrics:
+                metrics[tsKey] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+
             if id == 140:
-                p.hincrby(tsKey, 'total', 1)
-                if value:
-                    p.hincrby(tsKey, 'freeze', 1)
-            elif value:
-                if sid in hosts:
-                    score = getHostScore(value)
-                    if vid == '15840' and score == 'b1' and count[0] < 3:
-                        reportBadSids(lts, sid, vid, value, score, p)
-                        count[0] += 1
-                else:
-                    score = getGuestScore(value)
-                    if vid == '15840' and score == 'g1' and count[1] < 3:
-                        reportBadSids(lts, sid, vid, value, score, p)
-                        count[1] += 1
-                p.hincrby(tsKey, score, 1)
+                totalIndex = 0 if sid in presents else 9
+                metrics[tsKey][totalIndex] += 1
+            
+            index = getMetricIndex(id, sid, value, hosts, guests, presents)
+            if index != -1:
+                metrics[tsKey][index] += 1
+                
+                # report sid whose score = 1
+                if vid == '15840' and index == 6 and count[0] < 3:
+                    reportBadSids(lts, sid, vid, value, 'b1', p)
+                    count[0] += 1
+                if vid == '15840' and index == 8 and count[1] < 3:
+                    reportBadSids(lts, sid, vid, value, 'g1', p)
+                    count[1] += 1
+                if vid == '6727' and index == 10 and count[2] < 5:
+                    reportBadSids(lts, sid, vid, value, 'af', p)
+                    count[2] += 1
+    
+    reportRedis(metrics, p)
+
+
+def reportRedis(metrics, p):
+    for key, value in metrics.iteritems():
+        for i in range(len(value)):
+            if value[i]:
+                p.hincrby(key, COUNTER_NAMES[i], value[i])
     p.execute()
+
+
+def getMetricIndex(id, sid, value, hosts, guests, presents):
+    """
+    get index of metrics
+
+    0: total count of presents
+    1: freeze count of presents
+    2: b5 of hosts
+    3: b4 of hosts
+    4: b3 of hosts
+    5: b2 of hosts
+    6: b1 of hosts
+    7: g2 of guests
+    8: g1 of guests
+    9: total count of audience
+    10: freeze count of audience
+    """
+
+    result = -1
+    if id == 140 and value:
+        result = 1 if sid in presents else 10
+    elif id == 83:
+        if sid in hosts:
+            result = getHostScore(value)
+        elif sid in guests:
+            result = getGuestScore(value)    
+    return result
 
 
 def reportBadSids(ts, sid, vid, value, score, p):
@@ -176,10 +217,11 @@ def reportBadSids(ts, sid, vid, value, score, p):
     p.setex(badSids, 180, 1)
 
 
-def getHostAndGuest(batch):
+def getRoleSet(batch):
     sids = set()
     hosts = set()
     guests = set()
+    presents = set()
     records = []
 
     for item in batch:
@@ -189,14 +231,17 @@ def getHostAndGuest(batch):
         value = item[3]
 
         sids.add(sid)
-        if id == 86:
+        if id == 86:  # Video/High Send Resolution/Height
             if value == 640:
                 hosts.add(sid)
             elif value == 160:
                 guests.add(sid)
-        else:
+        elif id == 140:  # Video Recv Render Freeze Count
             records.append((id, ts, sid, value))
-    return sids, hosts, guests, records
+        elif id == 83 and value:  # Video/High Send Bitrate
+            presents.add(sid)
+            records.append((id, ts, sid, value))
+    return sids, hosts, guests, presents, records
 
 
 def getSidToVid(sids, vidMapping):
@@ -209,21 +254,21 @@ def getSidToVid(sids, vidMapping):
 
 def getHostScore(value):
     if value > 600:
-        return 'b5'
+        return 2
     elif value > 500:
-        return 'b4'
+        return 3
     elif value > 400:
-        return 'b3'
+        return 4
     elif value > 300:
-        return 'b2'
+        return 5
     else:
-        return 'b1'
+        return 6
 
 def getGuestScore(value):
-    if value > 150:
-        return 'g2'
+    if value > 120:
+        return 7
     else:
-        return 'g1'
+        return 8
 
 
 def initConfig():
@@ -252,6 +297,7 @@ def initConfig():
     global VALID_VIDS
     global OPENTSDB_URL
     global COUNTER_KEYS
+    global COUNTER_NAMES
 
     KAFKA_URL = config.get('kafka', 'url')
     KAFKA_TOPIC = config.get('kafka', 'topic')
@@ -272,7 +318,8 @@ def initConfig():
 
     OPENTSDB_URL = config.get('opentsdb', 'url')
 
-    COUNTER_KEYS = {'total': 0, 'freeze': 1, 'b5': 2, 'b4': 3, 'b3': 4, 'b2': 5, 'b1': 6, 'g2': 7, 'g1': 8}
+    COUNTER_KEYS = {'total': 0, 'freeze': 1, 'b5': 2, 'b4': 3, 'b3': 4, 'b2': 5, 'b1': 6, 'g2': 7, 'g1': 8, 'atotal': 9, 'afreeze': 10}
+    COUNTER_NAMES = ['total', 'freeze', 'b5', 'b4', 'b3', 'b2', 'b1', 'g2', 'g1', 'atotal', 'afreeze']
 
     logger.info("init from config:%s successfully" % configFile)
 
@@ -295,7 +342,7 @@ def reportMetrics(pool):
         results = p.execute()
 
         for tsKey, result in zip(tsRange[0], results):
-            metricsCounter[tsKey] = [0, 0, 0, 0, 0, 0, 0, 0, 0]
+            metricsCounter[tsKey] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
             for key, value in result.iteritems():
                 index = COUNTER_KEYS[key]
                 metricsCounter[tsKey][index] = int(value)
@@ -314,7 +361,9 @@ def reportOpenTsdb(metricsCounter, opentsdbClient):
         ts, vid = parseTsKey(tsKey)
 
         freezeRate = 1.0 * value[1] / value[0] if value[0] else 0
-        opentsdbClient.log(freezerateMetric, freezeRate, timestamp=ts, vendor=vid)
+        afreezeRate = 1.0 * value[10] / value[9] if value[9] else 0
+        opentsdbClient.log(freezerateMetric, freezeRate, timestamp=ts, vendor=vid, score=1)
+        opentsdbClient.log(freezerateMetric, afreezeRate, timestamp=ts, vendor=vid, score=0)
 
         opentsdbClient.log(bitrateMetric, value[2], timestamp=ts, vendor=vid, score=5)
         opentsdbClient.log(bitrateMetric, value[3], timestamp=ts, vendor=vid, score=4)

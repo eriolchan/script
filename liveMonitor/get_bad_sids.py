@@ -6,7 +6,8 @@ import redis
 
 import http_server
 
-redisClient = redis.StrictRedis(host='localhost', port=6379, db=0)
+redisClient = redis.StrictRedis(host='10.1.1.57', port=6379, db=0)
+scores = set(['b1', 'g1', 'af'])
 
 
 class HttpRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
@@ -27,7 +28,7 @@ class HttpRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 
     def get_bad_sids(self, score):
         results = []
-        if score != 'b1' and score != 'g1':
+        if score not in scores:
             return results
         
         pattern = '%s:*' % score
