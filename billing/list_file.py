@@ -5,7 +5,7 @@ import sys
 
 
 def main():
-    base_path = '/data/2/billing_archive/cdn'
+    base_path = '/data/2/billing_archive/'
     date = sys.argv[1]
 
     for i in range(24):
