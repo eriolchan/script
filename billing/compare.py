@@ -34,6 +34,8 @@ def compare(counter):
     for key in sorted(counter):
         imported = counter[key]
         folder = base_path + '/' + key
+        if not os.path.exists(folder):
+            continue
         total = len(os.walk(folder).next()[2])
         result = '{}: import {} / {} -> {}'.format(folder, imported, total, 'X' if imported != total else '')
         print result
