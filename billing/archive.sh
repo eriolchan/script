@@ -45,7 +45,7 @@ function upload()
     category=$1
     date=$2
     from_path="/data/1/billing_archive"
-    to_path="oss://agora-billing"
+    to_path="oss://my-billing"
 
     folder="${from_path}/${category}/${date}"
     target="${to_path}/${category}/${date}"
