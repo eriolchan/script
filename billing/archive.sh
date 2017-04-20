@@ -11,12 +11,18 @@ function zip()
     category=$1
     date=$2
     from_path="/data/2/billing_archive"
-    to_path="/data/1/billing_archive"
+    to_path="/data/2/billing_zip"
 
     folder="${from_path}/${category}/${date}"
     target="${to_path}/${category}/${date}"
 
     echo "start to zip files in folder ${folder}"
+
+    if [ ! -d ${folder} ]
+    then
+        return
+    fi
+    
     cd ${folder}
     mkdir -p ${target}
 
@@ -37,6 +43,9 @@ function zip()
         done
     fi
 
+    cd ..
+    rmdir ${folder}
+
     echo "done!"
 }
 
@@ -44,7 +53,7 @@ function upload()
 {
     category=$1
     date=$2
-    from_path="/data/1/billing_archive"
+    from_path="/data/2/billing_zip"
     to_path="oss://my-billing"
 
     folder="${from_path}/${category}/${date}"
