@@ -29,9 +29,8 @@ function export_file()
 
     echo "zip file"
     zipfile="${dest}/${folder}.tar.gz"
-    tar zcvf ${zipfile} ${subfolder}
+    tar zcf ${zipfile} ${subfolder}
     rm -r ${subfolder}
-    echo "done!"
 }
 
 # distribute file
@@ -56,7 +55,9 @@ function upload_file()
     month=${date:4:2}
     key="detail/${year}/${month}/${date}.tar.gz"
     filename="/data/2/billing_detail/${date}.tar.gz"
-    python upload.py ${key} ${filename}
+    script="/data/LogDataProcess/Tools/scripts/upload.py"
+    echo "start to upload file ${filename}"
+    python ${script} ${key} ${filename}
 }
 
 

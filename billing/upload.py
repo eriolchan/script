@@ -9,7 +9,7 @@ def main(key, filename):
     bucket = oss2.Bucket(auth, 'endpoint.aliyuncs.com', 'bucket')
 
     total_size = os.path.getsize(filename)
-    part_size = oss2.determine_part_size(total_size, preferred_size=100 * 1024)
+    part_size = oss2.determine_part_size(total_size, preferred_size=10 * 1024 * 1024)
 
     # init
     upload_id = bucket.init_multipart_upload(key).upload_id
